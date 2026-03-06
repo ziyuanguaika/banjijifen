@@ -3923,19 +3923,23 @@
 
     // 找到与科目相关的减分规则（未交作业）
     const getSubjectDeductRule = (subject) => {
-        // 优先匹配含有科目名+不交/未交的规则
-        const rule = pointRules.find(r =>
+        // 优先匹配：科目名 + 作业 + (不交/未交/没交)
+        let rule = pointRules.find(r =>
             r.type === 'subtract' &&
             r.name.includes(subject) &&
-            (r.name.includes('不交') || r.name.includes('未交') || r.name.includes('没交') || r.name.includes('作业'))
+            r.name.includes('作业') &&
+            (r.name.includes('不交') || r.name.includes('未交') || r.name.includes('没交'))
         );
         if (rule) return rule;
-        // 次选：任意未交作业规则
-        const fallback = pointRules.find(r =>
+        // 次选：科目名 + (不交/未交/没交)
+        rule = pointRules.find(r =>
             r.type === 'subtract' &&
-            (r.name.includes('不交') || r.name.includes('未交') || r.name.includes('没交') || r.name.includes('作业未交'))
+            r.name.includes(subject) &&
+            (r.name.includes('不交') || r.name.includes('未交') || r.name.includes('没交'))
         );
-        return fallback || null;
+        if (rule) return rule;
+        // 最后：如果没有特定科目规则，使用默认-2分
+        return { points: -2, name: subject + '未交作业' };
     };
 
     const openSlot = (slotIdx) => {

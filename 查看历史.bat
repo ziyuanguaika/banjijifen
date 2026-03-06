@@ -4,7 +4,7 @@ cd /d D:\nginx\www\test_project
 
 echo.
 echo ========================================
-echo          版本历史记录
+echo          Git History
 echo ========================================
 echo.
 
@@ -12,8 +12,8 @@ git log --oneline --graph --all --decorate
 
 echo.
 echo ========================================
-echo 说明: 左边的字母数字是版本号
-echo       回滚时用这个号码
+echo The hash on the left is the commit ID
+echo Use this ID for rollback
 echo ========================================
 echo.
 pause

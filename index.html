@@ -1511,51 +1511,11 @@
                     return;
                 }
 
-                // 扣除每个未交作业学生的积分
-                const updatedStudents = students.map(s => {
-                    if (unsubmitted.includes(s.id)) {
-                        return {
-                            ...s,
-                            points: parseInt(s.points) - 2,
-                            availablePoints: parseInt(s.availablePoints || 0) - 2
-                        };
-                    }
-                    return s;
-                });
-                setStudents(updatedStudents);
-
-                // 为每个未交作业的学生添加历史记录
-                const timestamp = Date.now();
-                const newHistoryRecords = unsubmitted.map((studentId, index) => {
-                    const student = students.find(s => s.id === studentId);
-                    return {
-                        id: timestamp + index,
-                        studentId: studentId,
-                        studentName: student?.name || '',
-                        rule: currentSubject + '作业',
-                        points: -2,
-                        note: '未交',
-                        time: new Date().toISOString().replace('T', ' ').substring(0, 19),
-                        type: 'subtract'
-                    };
-                });
-                setHistory(prev => [...newHistoryRecords, ...prev]);
-
-                // 添加到操作历史
-                setOperationHistory(prev => [...prev, ...newHistoryRecords.map(h => ({
-                    type: 'point',
-                    data: {
-                        studentId: h.studentId,
-                        points: h.points,
-                        rule: h.rule,
-                        timestamp: Date.now(),
-                        historyId: h.id
-                    }
-                }))]);
-
-                setOperatedStudents([]);
-                setHomeworkStatMode(false);
-                setUploadMessage('✅ 已标记 ' + unsubmitted.length + ' 名学生未交作业（-2分）');
+                // 选中未交的学生并打开多选规则面板
+                setSelectedStudents(unsubmitted);
+                setMultiSelectMode(true);
+                setShowMultiSelectRules(true);
+                setUploadMessage('📝 已选中 ' + unsubmitted.length + ' 名未交作业学生，请选择扣分规则');
                 setTimeout(() => setUploadMessage(''), 3000);
             };
 
@@ -1698,16 +1658,16 @@
 
                 const newPoints = parseInt(points);
                 const oldPoints = parseInt(student.points) || 0;
-                
+
                 // 更新学生积分
                 const updatedStudent = {
                     ...student,
                     points: oldPoints + newPoints,
                     availablePoints: parseInt(student.availablePoints || 0) + newPoints
                 };
-                
+
                 // 更新学生列表
-                setStudents(prev => prev.map(s => 
+                setStudents(prev => prev.map(s =>
                     s.id === studentId ? updatedStudent : s
                 ));
 
@@ -1726,15 +1686,20 @@
                 // 添加到操作历史（用于撤销）
                 setOperationHistory(prev => [...prev, {
                     type: 'point',
-                    data: { 
-                        studentId, 
-                        points: newPoints, 
-                        rule, 
-                        note, 
+                    data: {
+                        studentId,
+                        points: newPoints,
+                        rule,
+                        note,
                         timestamp: Date.now(),
                         historyId: newHistory.id
                     }
                 }]);
+
+                // 作业统计模式：自动记录已操作的学生
+                if (homeworkStatMode && !operatedStudents.includes(studentId)) {
+                    setOperatedStudents(prev => [...prev, studentId]);
+                }
 
                 // 显示反馈
                 setPointFeedback({
@@ -1803,8 +1768,20 @@
                     }
                 }))]);
 
+                // 作业统计模式：把这批学生标记为已操作
+                if (homeworkStatMode) {
+                    const newOperatedStudents = [...operatedStudents];
+                    selectedStudents.forEach(studentId => {
+                        if (!newOperatedStudents.includes(studentId)) {
+                            newOperatedStudents.push(studentId);
+                        }
+                    });
+                    setOperatedStudents(newOperatedStudents);
+                }
+
                 // 清空选择
                 setSelectedStudents([]);
+                setMultiSelectMode(false);
                 setShowMultiSelectRules(false);
 
                 setUploadMessage(`✅ 已为 ${selectedStudents.length} 位学生 ${newPoints > 0 ? '+' : ''}${newPoints} 分`);

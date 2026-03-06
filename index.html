@@ -1399,66 +1399,192 @@
             };
 
             // 导出历史数据（按日期范围）
-            const exportHistoryData = (period = 'today', startDate = null, endDate = null) => {
-                let filteredHistory = history;
-                const now = new Date();
-                
-                switch (period) {
-                    case 'today':
-                        const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
-                        filteredHistory = history.filter(h => new Date(h.time) >= today);
-                        break;
-                    case 'week':
-                        const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
-                        filteredHistory = history.filter(h => new Date(h.time) >= weekAgo);
-                        break;
-                    case 'month':
-                        const monthAgo = new Date(now.getFullYear(), now.getMonth() - 1, now.getDate());
-                        filteredHistory = history.filter(h => new Date(h.time) >= monthAgo);
-                        break;
-                    case 'custom':
-                        filteredHistory = history.filter(h => {
-                            const hDate = new Date(h.time);
-                            return hDate >= new Date(startDate) && hDate <= new Date(endDate + 'T23:59:59');
-                        });
-                        break;
+            const exportHistoryData = (period = 'today', customStartDate = null, customEndDate = null) => {
+                let filteredHistory = [];
+                let periodName = '';
+
+                // 1. 按 period 参数筛选时间范围
+                if (period === 'today') {
+                    filteredHistory = getHistoryInPeriod('daily');
+                    periodName = '当天';
+                } else if (period === 'week') {
+                    filteredHistory = getHistoryInPeriod('weekly');
+                    periodName = '本周';
+                } else if (period === 'month') {
+                    filteredHistory = getHistoryInPeriod('monthly');
+                    periodName = '本月';
+                } else if (period === 'custom' && customStartDate && customEndDate) {
+                    const start = new Date(customStartDate);
+                    const end = new Date(customEndDate);
+                    end.setHours(23, 59, 59, 999);
+                    filteredHistory = history.filter(h => {
+                        const recordDate = new Date(h.time);
+                        return recordDate >= start && recordDate <= end;
+                    });
+                    periodName = `${customStartDate}至${customEndDate}`;
                 }
-                
-                const wb = XLSX.utils.book_new();
-                const data = [
-                    ['时间', '学生姓名', '小组', '规则', '积分变化', '备注']
-                ];
-                
-                filteredHistory.forEach(h => {
-                    const student = students.find(s => s.id === h.studentId);
-                    if (student) {
-                        data.push([
-                            h.time || '',
-                            student.name || '',
-                            student.group ? student.group + '组' : '',
-                            h.rule || h.reason || '',
-                            h.points || 0,
-                            h.note || h.rewardName || ''
-                        ]);
+
+                // 2. 排除兑换记录
+                const filteredHistoryWithoutRedeem = filteredHistory.filter(h => h.type !== 'redeem');
+
+                // 3. 按学生姓名分组统计
+                const studentStats = {};
+                filteredHistoryWithoutRedeem.forEach(record => {
+                    const studentName = record.studentName;
+                    if (!studentStats[studentName]) {
+                        const student = students.find(s => s.name === studentName);
+                        studentStats[studentName] = {
+                            name: studentName,
+                            group: student ? student.group : '未知',
+                            totalPoints: 0,
+                            addPoints: 0,
+                            subtractPoints: 0,
+                            records: []
+                        };
                     }
+                    studentStats[studentName].totalPoints += record.points;
+                    if (record.points > 0) {
+                        studentStats[studentName].addPoints += record.points;
+                    } else {
+                        studentStats[studentName].subtractPoints += Math.abs(record.points);
+                    }
+                    studentStats[studentName].records.push(record);
                 });
-                
+
+                // 4. 按小组分组统计
+                const groupStats = {};
+                Object.values(studentStats).forEach(student => {
+                    if (!groupStats[student.group]) {
+                        groupStats[student.group] = {
+                            totalPoints: 0,
+                            addPoints: 0,
+                            subtractPoints: 0,
+                            studentCount: 0,
+                            students: []
+                        };
+                    }
+                    groupStats[student.group].totalPoints += student.totalPoints;
+                    groupStats[student.group].addPoints += student.addPoints;
+                    groupStats[student.group].subtractPoints += student.subtractPoints;
+                    groupStats[student.group].studentCount += 1;
+                    groupStats[student.group].students.push(student.name);
+                });
+
+                // 5. 组号排序（'未知'排最后）
+                const sortedGroups = Object.keys(groupStats).sort((a, b) => {
+                    if (a === '未知') return 1;
+                    if (b === '未知') return -1;
+                    return Number(a) - Number(b);
+                });
+
+                // 6. 学生排序：先按组号，同组内按总分倒序
+                const sortedStudents = Object.values(studentStats).sort((a, b) => {
+                    const groupA = Number(a.group) || 0;
+                    const groupB = Number(b.group) || 0;
+                    if (groupA !== groupB) return groupA - groupB;
+                    return b.totalPoints - a.totalPoints;
+                });
+
+                // 7. 构建表格数据（二维数组，6列）
+                const data = [
+                    ['积分统计表 - ' + periodName],
+                    [],
+                    ['序号', '姓名', '组别', '学生总分', '规则说明', '积分小计']
+                ];
+
+                let currentRow = 1; // 序号计数器
+
+                sortedGroups.forEach(groupNum => {
+                    const groupStudents = sortedStudents.filter(s => String(s.group) === String(groupNum));
+                    if (groupStudents.length === 0) return;
+
+                    groupStudents.forEach(student => {
+                        const groupDisplay = groupNum === '未知' ? '未知' : `${groupNum}组`;
+                        const studentTotalDisplay = student.totalPoints > 0 ? `+${student.totalPoints}` : student.totalPoints;
+
+                        // 学生汇总行：序号、姓名、组别、总分填在前4列，后2列为空
+                        data.push([
+                            currentRow,
+                            student.name,
+                            groupDisplay,
+                            studentTotalDisplay,
+                            '',   // 规则说明（空）
+                            ''    // 积分小计（空）
+                        ]);
+
+                        // 该学生的规则明细行：前4列为空，后2列填规则/小计
+                        const ruleStats = {};
+                        student.records.forEach(record => {
+                            if (!ruleStats[record.rule]) {
+                                ruleStats[record.rule] = { count: 0, totalPoints: 0 };
+                            }
+                            ruleStats[record.rule].count += 1;
+                            ruleStats[record.rule].totalPoints += record.points;
+                        });
+
+                        Object.keys(ruleStats).forEach(rule => {
+                            const stat = ruleStats[rule];
+                            data.push([
+                                '',  // 序号（空）
+                                '',  // 姓名（空）
+                                '',  // 组别（空）
+                                '',  // 学生总分（空）
+                                rule,
+                                stat.totalPoints > 0 ? `+${stat.totalPoints}` : stat.totalPoints
+                            ]);
+                        });
+
+                        currentRow++;
+                    });
+
+                    // 小组小计行
+                    const group = groupStats[groupNum];
+                    const groupTitle = groupNum === '未知' ? '【未知组小计】' : `【第${groupNum}组小计】`;
+                    data.push(['', groupTitle, '', group.totalPoints > 0 ? `+${group.totalPoints}` : group.totalPoints, '', '']);
+                    data.push([]); // 空行分隔各组
+                });
+
+                // 全班统计
+                const totalAdd = sortedStudents.reduce((sum, s) => sum + s.addPoints, 0);
+                const totalSubtract = sortedStudents.reduce((sum, s) => sum + s.subtractPoints, 0);
+                const totalNet = totalAdd - totalSubtract;
+
+                data.push(['【全班统计】']);
+                data.push(['统计项', '', '', '数值', '', '']);
+                data.push(['今日加分:', '', '', `+${totalAdd}`, '', '']);
+                data.push(['今日减分:', '', '', totalSubtract > 0 ? `-${totalSubtract}` : '0', '', '']);
+                data.push(['今日净分:', '', '', totalNet > 0 ? `+${totalNet}` : totalNet, '', '']);
+                data.push([]);
+
+                // 小组统计
+                data.push(['【小组统计】']);
+                data.push(['小组', '', '', '总分', '', '']);
+                sortedGroups.forEach(groupNum => {
+                    const group = groupStats[groupNum];
+                    const groupName = groupNum === '未知' ? '未知组' : `第${groupNum}组`;
+                    data.push([groupName, '', '', group.totalPoints > 0 ? `+${group.totalPoints}` : group.totalPoints, '', '']);
+                });
+
+                // 8. 生成 xlsx 文件
                 const ws = XLSX.utils.aoa_to_sheet(data);
-                XLSX.utils.book_append_sheet(wb, ws, '积分历史');
-                
-                let filename = '';
-                const dateStr = new Date().toLocaleDateString().replace(/\//g, '-');
-                switch (period) {
-                    case 'today': filename = `积分历史_当天_${dateStr}.xlsx`; break;
-                    case 'week': filename = `积分历史_本周_${dateStr}.xlsx`; break;
-                    case 'month': filename = `积分历史_本月_${dateStr}.xlsx`; break;
-                    case 'custom': filename = `积分历史_${startDate}_${endDate}.xlsx`; break;
-                }
-                
+                ws['!cols'] = [
+                    { wch: 8 },   // 序号
+                    { wch: 12 },  // 姓名
+                    { wch: 8 },   // 组别
+                    { wch: 12 },  // 学生总分
+                    { wch: 20 },  // 规则说明
+                    { wch: 12 }   // 积分小计
+                ];
+                const wb = XLSX.utils.book_new();
+                XLSX.utils.book_append_sheet(wb, ws, "积分统计");
+
+                const filename = `积分统计_${periodName}_${new Date().toLocaleDateString().replace(/\//g, '-')}.xlsx`;
                 XLSX.writeFile(wb, filename);
                 setUploadMessage(`✅ 已导出 ${filename}`);
                 setTimeout(() => setUploadMessage(''), 3000);
-                setShowExportDialog(false);
+                if (setShowExportDialog) {
+                    setShowExportDialog(false);
+                }
             };
 
 

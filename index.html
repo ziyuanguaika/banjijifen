@@ -565,6 +565,18 @@
             const [selectedStudent, setSelectedStudent] = useState(null);
             const [searchTerm, setSearchTerm] = useState('');
             const [uploadMessage, setUploadMessage] = useState('');
+            // 获取本地时间字符串 (YYYY-MM-DD HH:mm:ss)
+            const getLocalTime = () => {
+                const now = new Date();
+                const year = now.getFullYear();
+                const month = String(now.getMonth() + 1).padStart(2, '0');
+                const day = String(now.getDate()).padStart(2, '0');
+                const hours = String(now.getHours()).padStart(2, '0');
+                const minutes = String(now.getMinutes()).padStart(2, '0');
+                const seconds = String(now.getSeconds()).padStart(2, '0');
+                return `${year}-${month}-${day} ${hours}:${minutes}:${seconds}`;
+            };
+
             const [pointFeedback, setPointFeedback] = useState(null); // 积分反馈提示
             const [operationHistory, setOperationHistory] = useState(() => {
                 const saved = localStorage.getItem('operationHistory');
@@ -1678,7 +1690,7 @@
                     studentName: student.name,
                     points: newPoints,
                     rule: rule || (newPoints > 0 ? '+' : '') + newPoints,
-                    time: new Date().toISOString().replace('T', ' ').substring(0, 19),
+                    time: getLocalTime(),
                     type: newPoints > 0 ? 'add' : 'subtract'
                 };
                 setHistory(prev => [newHistory, ...prev]);
@@ -1697,8 +1709,11 @@
                 }]);
 
                 // 作业统计模式：自动记录已操作的学生
-                if (homeworkStatMode && !operatedStudents.includes(studentId)) {
-                    setOperatedStudents(prev => [...prev, studentId]);
+                if (homeworkStatMode) {
+                    setOperatedStudents(prev => {
+                        if (prev.includes(studentId)) return prev;
+                        return [...prev, studentId];
+                    });
                 }
 
                 // 显示反馈
@@ -1750,7 +1765,7 @@
                         studentName: student?.name || '',
                         points: newPoints,
                         rule,
-                        time: new Date().toISOString().replace('T', ' ').substring(0, 19),
+                        time: getLocalTime(),
                         type: newPoints > 0 ? 'add' : 'subtract'
                     };
                 });
@@ -1770,13 +1785,11 @@
 
                 // 作业统计模式：把这批学生标记为已操作
                 if (homeworkStatMode) {
-                    const newOperatedStudents = [...operatedStudents];
-                    selectedStudents.forEach(studentId => {
-                        if (!newOperatedStudents.includes(studentId)) {
-                            newOperatedStudents.push(studentId);
-                        }
+                    setOperatedStudents(prev => {
+                        const newSet = new Set(prev);
+                        selectedStudents.forEach(id => newSet.add(id));
+                        return Array.from(newSet);
                     });
-                    setOperatedStudents(newOperatedStudents);
                 }
 
                 // 清空选择
@@ -1821,7 +1834,7 @@
                         studentName: student.name,
                         points: newPoints,
                         rule: rule || (newPoints > 0 ? '小组加分' : '小组减分'),
-                        time: new Date().toISOString().replace('T', ' ').substring(0, 19),
+                        time: getLocalTime(),
                         type: newPoints > 0 ? 'add' : 'subtract'
                     };
                 });
@@ -1869,7 +1882,7 @@
                     studentName: student.name,
                     points: newPoints,
                     rule: rule || (newPoints > 0 ? '全员加分' : '全员减分'),
-                    time: new Date().toISOString().replace('T', ' ').substring(0, 19),
+                    time: getLocalTime(),
                     type: newPoints > 0 ? 'add' : 'subtract'
                 }));
                 setHistory(prev => [...newHistoryRecords, ...prev]);
@@ -2064,7 +2077,7 @@
                     studentName: student.name,
                     points: -costPoints,
                     rule: '兑换商品',
-                    time: new Date().toISOString().replace('T', ' ').substring(0, 19),
+                    time: getLocalTime(),
                     rewardName: reward.name || reward.reward_name
                 };
                 setHistory(prev => [newHistory, ...prev]);
@@ -3981,7 +3994,7 @@
             studentName: s.name,
             points: deductPoints,
             rule: ruleName,
-            time: new Date().toISOString().replace('T', ' ').substring(0, 19),
+            time: getLocalTime(),
             type: 'subtract'
         }));
         setHistory(prev => [...newRecords, ...prev]);
